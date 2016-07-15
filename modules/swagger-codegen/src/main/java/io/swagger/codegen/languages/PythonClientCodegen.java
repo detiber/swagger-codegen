@@ -25,9 +25,9 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
     protected String packageVersion;
     protected String apiDocPath = "docs/";
     protected String modelDocPath = "docs/";
-    
+
     protected Map<Character, String> regexModifiers;
-    
+
 	private String testFolder;
 
     public PythonClientCodegen() {
@@ -36,18 +36,18 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
         modelPackage = "models";
         apiPackage = "api";
         outputFolder = "generated-code" + File.separatorChar + "python";
-        
+
         modelTemplateFiles.put("model.mustache", ".py");
         apiTemplateFiles.put("api.mustache", ".py");
-        
+
         modelTestTemplateFiles.put("model_test.mustache", ".py");
         apiTestTemplateFiles.put("api_test.mustache", ".py");
-        
+
         embeddedTemplateDir = templateDir = "python";
 
         modelDocTemplateFiles.put("model_doc.mustache", ".md");
         apiDocTemplateFiles.put("api_doc.mustache", ".md");
-        
+
         testFolder = "test";
 
         languageSpecificPrimitives.clear();
@@ -94,7 +94,7 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
                     "assert", "else", "if", "pass", "yield", "break", "except", "import",
                     "print", "class", "exec", "in", "raise", "continue", "finally", "is",
                     "return", "def", "for", "lambda", "try", "self"));
-        
+
         regexModifiers = new HashMap<Character, String>();
         regexModifiers.put('i', "IGNORECASE");
         regexModifiers.put('l', "LOCALE");
@@ -149,12 +149,12 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
 
         supportingFiles.add(new SupportingFile("README.mustache", "", "README.md"));
         supportingFiles.add(new SupportingFile("LICENSE", "", "LICENSE"));
-        
+
         supportingFiles.add(new SupportingFile("setup.mustache", "", "setup.py"));
         supportingFiles.add(new SupportingFile("tox.mustache", "", "tox.ini"));
         supportingFiles.add(new SupportingFile("test-requirements.mustache", "", "test-requirements.txt"));
         supportingFiles.add(new SupportingFile("requirements.mustache", "", "requirements.txt"));
-        
+
         supportingFiles.add(new SupportingFile("api_client.mustache", swaggerFolder, "api_client.py"));
         supportingFiles.add(new SupportingFile("rest.mustache", swaggerFolder, "rest.py"));
         supportingFiles.add(new SupportingFile("configuration.mustache", swaggerFolder, "configuration.py"));
@@ -173,7 +173,7 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
     private static String dropDots(String str) {
         return str.replaceAll("\\.", "_");
     }
-    
+
     @Override
     public void postProcessParameter(CodegenParameter parameter){
         postProcessPattern(parameter.pattern, parameter.vendorExtensions);
@@ -214,6 +214,21 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
         }
     }
 
+
+    @Override
+    public String sanitizeTag(String tag) {
+        // remove spaces and make strong case
+        String[] parts = tag.split(" ");
+        StringBuilder buf = new StringBuilder();
+        for (String part : parts) {
+            if (StringUtils.isNotEmpty(part)) {
+                buf.append(StringUtils.capitalize(part));
+            }
+        }
+        return buf.toString().replaceAll("[\\W ]", "");
+    }
+
+
     @Override
     public CodegenType getTag() {
         return CodegenType.CLIENT;
@@ -253,7 +268,7 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
     public String toApiDocFilename(String name) {
         return toApiName(name);
     }
- 
+
 
     @Override
     public String apiFileFolder() {
@@ -264,7 +279,7 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
     public String modelFileFolder() {
         return outputFolder + File.separatorChar + modelPackage().replace('.', File.separatorChar);
     }
-    
+
     @Override
     public String apiTestFileFolder() {
     	return outputFolder + File.separatorChar + testFolder;
@@ -400,7 +415,7 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
         // PhoneNumber => phone_number
         return underscore(dropDots(name));
     }
-    
+
     @Override
     public String toModelTestFilename(String name) {
     	return "test_" + toModelFilename(name);
@@ -414,7 +429,7 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
         // e.g. PhoneNumberApi.rb => phone_number_api.rb
         return underscore(name) + "_api";
     }
-    
+
     @Override
     public String toApiTestFilename(String name) {
     	return "test_" + toApiFilename(name);
