@@ -4,11 +4,18 @@ import io.swagger.codegen.CliOption;
 import io.swagger.codegen.CodegenConfig;
 import io.swagger.codegen.CodegenConstants;
 import io.swagger.codegen.CodegenModel;
+import io.swagger.codegen.CodegenOperation;
 import io.swagger.codegen.CodegenParameter;
 import io.swagger.codegen.CodegenProperty;
 import io.swagger.codegen.CodegenType;
 import io.swagger.codegen.DefaultCodegen;
 import io.swagger.codegen.SupportingFile;
+import io.swagger.models.Swagger;
+import io.swagger.models.Tag;
+import io.swagger.models.HttpMethod;
+import io.swagger.models.Path;
+import io.swagger.models.Operation;
+import io.swagger.models.Model;
 import io.swagger.models.properties.*;
 
 import java.io.File;
@@ -17,6 +24,8 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
+import java.util.regex.Matcher;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -25,8 +34,8 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
     protected String packageVersion;
     protected String apiDocPath = "docs/";
     protected String modelDocPath = "docs/";
-
     protected Map<Character, String> regexModifiers;
+    protected Map<String, List<CodegenOperation>> pathOpMap;
 
 	private String testFolder;
 
@@ -110,6 +119,8 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
                 .defaultValue("1.0.0"));
         cliOptions.add(CliOption.newBoolean(CodegenConstants.SORT_PARAMS_BY_REQUIRED_FLAG,
                 CodegenConstants.SORT_PARAMS_BY_REQUIRED_FLAG_DESC).defaultValue(Boolean.TRUE.toString()));
+
+        pathOpMap = new HashMap<String, List<CodegenOperation>>();
     }
 
     @Override
@@ -216,6 +227,237 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
 
 
     @Override
+    public Map<String, Object> postProcessModels(Map<String, Object> objs) {
+        objs = super.postProcessModels(objs);
+
+
+        String objs_package = (String) objs.get("package");
+        List<String> objs_imports = (List<String>) objs.get("imports");
+        List<Map<String, Object>>  objs_models = (List<Map<String, Object>>) objs.get("models");
+
+        for(Map<String, Object>  model : objs_models) {
+            CodegenModel cm = (CodegenModel) model.get("model");
+
+            if (cm.name == "v1.Scale") continue;
+            if (cm.name == "v1beta1.Scale") continue;
+
+            String[] splitName = cm.name.split("\\.");
+            if (splitName.length < 2) continue;
+
+            String apiVersion = splitName[0];
+            cm.vendorExtensions.put("apiVersion", apiVersion);
+            cm.vendorExtensions.put("operations", new HashMap<String, HashMap<String, String>>());
+
+            String unversionedName = splitName[1].toLowerCase();
+            String unversionedPluralName = unversionedName + "s";
+            for (String path : pathOpMap.keySet()) {
+                List<String> pathParts = Arrays.asList(path.split("/"));
+
+                if (pathParts.contains(apiVersion)) {
+                    String matchedName = "";
+                    if (pathParts.contains(unversionedName)) matchedName = unversionedName;
+                    if (pathParts.contains(unversionedPluralName)) matchedName = unversionedPluralName;
+                    if (matchedName == "") continue;
+
+                    boolean nameMatch = false;
+                    boolean lastMatch = false;
+
+                    int nameIndex = pathParts.indexOf("{name}");
+                    String lastPart = pathParts.get(pathParts.size() - 1);
+                    if (lastPart.equals(matchedName)) {
+                        lastMatch = true;
+                    }
+                    else if (nameIndex > 0 && pathParts.get(nameIndex - 1).equals(matchedName)) {
+                        nameMatch = true;
+                    }
+                    else {
+                        continue;
+                    }
+
+                    for (CodegenOperation cgop : pathOpMap.get(path)){
+                        Map<String, String> method_info = new HashMap<String, String>();
+                        method_info.put("method", cgop.operationId);
+                        method_info.put("fileName", cgop.tags.get(0) + ".py");
+                        method_info.put("className", toApiName(cgop.tags.get(0)));
+
+                        String method_type = "";
+                        if (pathParts.contains("{namespace}")) method_type += "namespaced_";
+
+                        if (lastMatch && cgop.httpMethod.equals("POST")) {
+                            method_type += "create";
+                        }
+
+                        if (nameMatch && pathParts.get(pathParts.size() - 1).equals("{name}")){
+                            if (cgop.httpMethod.equals("DELETE")) {
+                                method_type += "delete";
+                            }
+                            else if (cgop.httpMethod.equals("PUT")) {
+                                method_type += "replace";
+                            }
+                            else if (cgop.httpMethod.equals("POST")) {
+                                method_type += "create";
+                            }
+                            else if (cgop.httpMethod.equals("PATCH")) {
+                                method_type += "patch";
+                            }
+                        }
+
+
+                        if (!method_type.equals("") && !method_type.equals("namespaced_")) {
+                            Map<String, Map<String, String>> operations = (Map<String, Map<String, String>>) cm.vendorExtensions.get("operations");
+                            operations.put(method_type, method_info);
+                            cm.vendorExtensions.put("operations", operations);
+                        }
+
+                    }
+                }
+            }
+        }
+
+        return objs;
+    }
+
+
+    @Override
+    public void preprocessSwagger(Swagger swagger) {
+        Map<String, Path> paths = swagger.getPaths();
+
+        Pattern versionPattern = Pattern.compile("^(.*)(v\\d+(?:(?:alpha|beta)\\d+)?)(.*)");
+        ArrayList<String> pathsToDelete = new ArrayList<>();
+        for (Map.Entry<String, Path> pathEntry : paths.entrySet()) {
+            String path = pathEntry.getKey();
+            Path pathObject = pathEntry.getValue();
+
+            Matcher versionMatcher = versionPattern.matcher(path);
+            Map<HttpMethod, Operation> opMap = pathObject.getOperationMap();
+            for (Map.Entry<HttpMethod, Operation> opEntry : opMap.entrySet()){
+
+                HttpMethod method = opEntry.getKey();
+                Operation op = opEntry.getValue();
+
+                List<String> tags = op.getTags();
+
+                String pathTag = path.replace("/", "");
+                if (versionMatcher.matches()) {
+                    pathTag = (versionMatcher.group(1) + versionMatcher.group(2)).replace("/", "");
+                }
+
+                int pathIndex = tags.indexOf(pathTag);
+                if (pathIndex >= 0) {
+                    if (versionMatcher.matches()){
+                        tags.set(pathIndex, (versionMatcher.group(1) + versionMatcher.group(2)).replace("/", "_").substring(1));
+                    }
+                    else {
+                        tags.set(pathIndex, path.replace("/", "_").substring(1));
+                    }
+                }
+
+                if (versionMatcher.matches()) {
+                    String newOpId = "";
+                    ArrayList<String> pathComponents = new ArrayList(Arrays.asList(versionMatcher.group(3).split("/")));
+                    if (pathComponents.contains("proxy")){
+                        // TODO: handle proxy paths rather than deleting them
+                        pathsToDelete.add(path);
+                    }
+                    else {
+                        String lastComponent = pathComponents.get(pathComponents.size() - 1);
+                        if (Arrays.asList("watch", "status", "attach", "exec", "portforward", "binding", "bindings").contains(lastComponent)){
+                            // TODO: handle special paths rather than deleting them
+                            pathsToDelete.add(path);
+                        }
+                        else {
+                            switch (method) {
+                                case GET:
+                                    if (pathComponents.contains("watch")) {
+                                        newOpId = "watch";
+                                    }
+                                    else if (pathComponents.contains("{name}")){
+                                        newOpId = "get";
+                                    }
+                                    else {
+                                        newOpId = "list";
+                                    }
+                                    break;
+                                case POST:
+                                    newOpId = "create";
+                                    break;
+                                case PUT:
+                                    newOpId = "replace";
+                                    break;
+                                case PATCH:
+                                    newOpId = "patch";
+                                    break;
+                                case DELETE:
+                                    newOpId = "delete";
+                                    break;
+                            }
+
+
+                            if (pathComponents.contains("{name}")) {
+                                int index = pathComponents.indexOf("{name}");
+                                pathComponents.remove(index);
+                                int prevItem = index - 1;
+                                String prevComponent = pathComponents.get(prevItem);
+                                if (prevComponent.endsWith("ses")){
+                                    pathComponents.set(prevItem, prevComponent.substring(0, prevComponent.length() - 2));
+                                }
+                                else if (prevComponent.endsWith("s")){
+                                    pathComponents.set(prevItem, prevComponent.substring(0, prevComponent.length() - 1));
+                                }
+                            }
+
+                            if (method.toString() == "POST"){
+                                // retrieve lastComponent again, since we
+                                // might have changed the size of the List
+                                int lastItem = pathComponents.size() - 1;
+                                lastComponent = pathComponents.get(lastItem);
+                                if (lastComponent.endsWith("ses")){
+                                    pathComponents.set(lastItem, lastComponent.substring(0, lastComponent.length() - 2));
+                                }
+                                else if (lastComponent.endsWith("s")){
+                                    pathComponents.set(lastItem, lastComponent.substring(0, lastComponent.length() - 1));
+                                }
+                            }
+
+                            if (pathComponents.contains("{namespace}")) {
+                                newOpId += "Namespaced";
+                                pathComponents.remove("namespaces");
+                                pathComponents.remove("{namespace}");
+                            }
+
+                            for (String item : pathComponents){
+                                newOpId += StringUtils.capitalize(item);
+                            }
+                            op.setOperationId(newOpId);
+                        }
+                    }
+                }
+            }
+        }
+
+        for (String path : pathsToDelete){
+            paths.remove(path);
+            swagger.setPaths(paths);
+        }
+
+        for (Map.Entry<String, Path> pathEntry : paths.entrySet()) {
+            String path = pathEntry.getKey();
+            Path pathObject = pathEntry.getValue();
+
+            Map<HttpMethod, Operation> opMap = pathObject.getOperationMap();
+            for (Map.Entry<HttpMethod, Operation> opEntry : opMap.entrySet()){
+                HttpMethod method = opEntry.getKey();
+                Operation op = opEntry.getValue();
+
+				CodegenOperation cgop = fromOperation(path, method.toString(), op, swagger.getDefinitions(), swagger);
+                if (! pathOpMap.containsKey(path)) {
+                    pathOpMap.put(path, new ArrayList<CodegenOperation>());
+                }
+                pathOpMap.get(path).add(cgop);
+
+    }
+
+    @Override
     public String sanitizeTag(String tag) {
         // remove spaces and make strong case
         String[] parts = tag.split(" ");
@@ -225,7 +467,8 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
                 buf.append(StringUtils.capitalize(part));
             }
         }
-        return buf.toString().replaceAll("[\\W ]", "");
+        String result = buf.toString().replaceAll("[\\W ]", "");
+        return result;
     }
 
 
@@ -427,7 +670,7 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
         name = name.replaceAll("-", "_");
 
         // e.g. PhoneNumberApi.rb => phone_number_api.rb
-        return underscore(name) + "_api";
+        return underscore(name);
     }
 
     @Override
@@ -441,7 +684,7 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
             return "DefaultApi";
         }
         // e.g. phone_number_api => PhoneNumberApi
-        return camelize(name) + "Api";
+        return camelize(name);
     }
 
     @Override
@@ -449,7 +692,7 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
         if (name.length() == 0) {
             return "default_api";
         }
-        return underscore(name) + "_api";
+        return underscore(name);
     }
 
     @Override
