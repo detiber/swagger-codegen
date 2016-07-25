@@ -231,12 +231,13 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
         objs = super.postProcessModels(objs);
 
 
-        String objs_package = (String) objs.get("package");
         List<String> objs_imports = (List<String>) objs.get("imports");
         List<Map<String, Object>>  objs_models = (List<Map<String, Object>>) objs.get("models");
 
         for(Map<String, Object>  model : objs_models) {
             CodegenModel cm = (CodegenModel) model.get("model");
+
+            String objs_package = (String) objs.get("package");
 
             if (cm.name == "v1.Scale") continue;
             if (cm.name == "v1beta1.Scale") continue;
@@ -246,7 +247,7 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
 
             String apiVersion = splitName[0];
             cm.vendorExtensions.put("apiVersion", apiVersion);
-            cm.vendorExtensions.put("operations", new HashMap<String, HashMap<String, String>>());
+            ArrayList<HashMap<String, String>> opList = new ArrayList<HashMap<String, String>>();
 
             String unversionedName = splitName[1].toLowerCase();
             String unversionedPluralName = unversionedName + "s";
@@ -275,43 +276,42 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
                     }
 
                     for (CodegenOperation cgop : pathOpMap.get(path)){
-                        Map<String, String> method_info = new HashMap<String, String>();
-                        method_info.put("method", cgop.operationId);
-                        method_info.put("fileName", cgop.tags.get(0) + ".py");
-                        method_info.put("className", toApiName(cgop.tags.get(0)));
-
-                        String method_type = "";
-                        if (pathParts.contains("{namespace}")) method_type += "namespaced_";
-
+                        String opMethod = cgop.operationId;
+                        String opClass = toApiName(cgop.tags.get(0));
+                        String opMethodType = "";
                         if (lastMatch && cgop.httpMethod.equals("POST")) {
-                            method_type += "create";
+                            opMethodType = "create";
                         }
 
                         if (nameMatch && pathParts.get(pathParts.size() - 1).equals("{name}")){
                             if (cgop.httpMethod.equals("DELETE")) {
-                                method_type += "delete";
+                                opMethodType = "delete";
                             }
                             else if (cgop.httpMethod.equals("PUT")) {
-                                method_type += "replace";
+                                opMethodType = "update";
                             }
-                            else if (cgop.httpMethod.equals("POST")) {
-                                method_type += "create";
+                            else if (cgop.httpMethod.equals("GET")) {
+                                opMethodType = "read";
                             }
                             else if (cgop.httpMethod.equals("PATCH")) {
-                                method_type += "patch";
+                                opMethodType = "patch";
                             }
                         }
 
 
-                        if (!method_type.equals("") && !method_type.equals("namespaced_")) {
-                            Map<String, Map<String, String>> operations = (Map<String, Map<String, String>>) cm.vendorExtensions.get("operations");
-                            operations.put(method_type, method_info);
-                            cm.vendorExtensions.put("operations", operations);
+                        if (!opMethodType.equals("")) {
+                            HashMap<String, String> methodInfo = new HashMap<String, String>();
+                            methodInfo.put("class", opClass);
+                            methodInfo.put("type", opMethodType);
+                            methodInfo.put("method", opMethod);
+                            methodInfo.put("namespaced", pathParts.contains("{namespace}") ? "True" : "False");
+                            opList.add(methodInfo);
                         }
 
                     }
                 }
             }
+            cm.vendorExtensions.put("operations", opList);
         }
 
         return objs;
@@ -454,7 +454,8 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
                     pathOpMap.put(path, new ArrayList<CodegenOperation>());
                 }
                 pathOpMap.get(path).add(cgop);
-
+            }
+        }
     }
 
     @Override
