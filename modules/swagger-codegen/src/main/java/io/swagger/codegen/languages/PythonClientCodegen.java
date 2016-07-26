@@ -317,7 +317,7 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
                             else if (cgop.httpMethod.equals("PUT") && cgop.operationId.startsWith("replace_")) {
                                 opMethodType = "update";
                             }
-                            else if (cgop.httpMethod.equals("GET") && cgop.operationId.startsWith("create_")) {
+                            else if (cgop.httpMethod.equals("GET") && cgop.operationId.startsWith("get_")) {
                                 opMethodType = "read";
                             }
                         }
