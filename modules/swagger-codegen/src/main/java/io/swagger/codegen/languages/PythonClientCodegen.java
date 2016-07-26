@@ -306,22 +306,19 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
                         String opMethod = cgop.operationId;
                         String opClass = toApiName(cgop.tags.get(0));
                         String opMethodType = "";
-                        if (lastMatch && cgop.httpMethod.equals("POST")) {
+                        if (lastMatch && cgop.httpMethod.equals("POST") && cgop.operationId.startsWith("create_")) {
                             opMethodType = "create";
                         }
 
                         if (nameMatch && pathParts.get(pathParts.size() - 1).equals("{name}")){
-                            if (cgop.httpMethod.equals("DELETE")) {
+                            if (cgop.httpMethod.equals("DELETE") && cgop.operationId.startsWith("delete_")) {
                                 opMethodType = "delete";
                             }
-                            else if (cgop.httpMethod.equals("PUT")) {
+                            else if (cgop.httpMethod.equals("PUT") && cgop.operationId.startsWith("replace_")) {
                                 opMethodType = "update";
                             }
-                            else if (cgop.httpMethod.equals("GET")) {
+                            else if (cgop.httpMethod.equals("GET") && cgop.operationId.startsWith("create_")) {
                                 opMethodType = "read";
-                            }
-                            else if (cgop.httpMethod.equals("PATCH")) {
-                                opMethodType = "patch";
                             }
                         }
 
