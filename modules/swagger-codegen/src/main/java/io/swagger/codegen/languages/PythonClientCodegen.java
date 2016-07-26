@@ -227,6 +227,33 @@ public class PythonClientCodegen extends DefaultCodegen implements CodegenConfig
 
 
     @Override
+    public Map<String, Object> postProcessOperations(Map<String, Object> objs) {
+        objs = super.postProcessOperations(objs);
+        LOGGER.info("objs: " + objs);
+        Map<String, Object> operationsObject = (Map<String, Object>) objs.get("operations");
+        List<CodegenOperation> operations = (List<CodegenOperation>) operationsObject.get("operation");
+        LOGGER.info("operations: " + operations);
+
+        for (CodegenOperation op : operations) {
+            if ((op.httpMethod.equals("POST") && op.operationId.startsWith("create_")) ||
+                (op.httpMethod.equals("PUT") && op.operationId.startsWith("replace_")) ||
+                (op.httpMethod.equals("DELETE") && op.operationId.startsWith("delete_"))) {
+                LOGGER.info("op consumes: " + op.consumes);
+                for (Map<String, String> entry : op.consumes) {
+                    if (entry.get("mediaType").equals("*/*")) {
+                        entry.put("mediaType", "application/json");
+                    }
+                }
+                LOGGER.info("op consumes(after):" + op.consumes);
+            }
+
+        }
+        LOGGER.info("operations (after): " + operations);
+        LOGGER.info("objs (after): " + objs);
+        return objs;
+    }
+
+    @Override
     public Map<String, Object> postProcessModels(Map<String, Object> objs) {
         objs = super.postProcessModels(objs);
 
